@@ -3,7 +3,7 @@
 Plugin Name: WordPress APCu Object Cache Backend
 Plugin URI: https://github.com/sup3dev/apcu-wordpress
 Description: APCu backend for WordPress' Object Cache. Based on the plugin https://github.com/l3rady/object-cache-apcu (version v1.2)
-Version: 1.4
+Version: 1.4.1
 Author: Alexander Mikheev (sup3dev)
 */
 
@@ -556,6 +556,11 @@ class WP_Object_Cache
      */
     private function _add($key, $var, $ttl)
     {
+        // Если TTL не задан или равен 0, устанавливаем значение по умолчанию
+        if ($ttl <= 0 && defined('WP_APCU_DEFAULT_TTL')) {
+            $ttl = WP_APCU_DEFAULT_TTL;
+        }
+        
         if (apcu_add($key, $var, max((int)$ttl, 0))) {
             if (WP_APCU_LOCAL_CACHE) {
                 $this->_localCache[$key] = is_object($var) ? clone $var : $var;
@@ -1244,9 +1249,9 @@ class WP_Object_Cache
      */
     private function _set($key, $var, $ttl)
     {
-        // Если TTL не задан или равен 0, устанавливаем значение по умолчанию (6 часов)
-        if ($ttl <= 0) {
-            $ttl = 21600; // 6 часов в секундах
+        // Если TTL не задан или равен 0, устанавливаем значение по умолчанию из константы
+        if ($ttl <= 0 && defined('WP_APCU_DEFAULT_TTL')) {
+            $ttl = WP_APCU_DEFAULT_TTL;
         }
         
         if (is_object($var)) {
