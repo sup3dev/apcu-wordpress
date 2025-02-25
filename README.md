@@ -13,10 +13,6 @@ This plugin enhances the original APCu Object Cache Backend by adding **intellig
 - **Selective Cleanup**: Only modified objects are removed from the cache, leaving untouched objects for better performance.
 - **Reduced Database Access**: Fewer queries are required after content updates due to more efficient cache handling.
 
-## Known Issues
-
-- **TTL Problem**: Records with `TTL=0` remain in memory indefinitely, which can lead to stale cache entries.
-- **Cache Versioning**: While cache versions are created when data changes, old versions are not automatically removed, leading to potential memory bloat.
 
 ## Installation
 
