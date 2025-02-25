@@ -35,15 +35,17 @@ Please note that this version is not up-to-date with the latest improvements.
 Contributing
 Feel free to open an issue or submit a pull request if you have suggestions or find bugs. Contributions are always welcome!
 
-Changelog
-1.2
+#Changelog
+- 1.2
 (in the repository https://github.com/l3rady/object-cache-apcu):
 Add composer file and add dropin plugin to packagist.org for easy installation via composer.
 Add latest cache methods added to core recentlys
-1.1
+
+- 1.1
 Added local array cache to minimize APCu calls during repeated requests (thanks to rob006).
 Introduced WP_APCU_LOCAL_CACHE to disable local cache in specific cases.
-1.0
+
+- 1.0
 Initial release, based on the APC Object Cache Backend.
 
 This plugin is an improved version of the original APCu Object Cache Backend with better cache invalidation and resource management.
