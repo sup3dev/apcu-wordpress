@@ -38,27 +38,27 @@ Feel free to open an issue or submit a pull request if you have suggestions or f
 ## Changelog
 ### 1.4.1
 
-## TTL Handling Improvements
-- Unified default TTL logic in `_set()` method to use `WP_APCU_DEFAULT_TTL`
-- Added validation and default TTL assignment in `_add()` method
+- TTL Handling Improvements
+  - Unified default TTL logic in `_set()` method to use `WP_APCU_DEFAULT_TTL`
+  - Added validation and default TTL assignment in `_add()` method
 
 ### 1.4
 
-## Default TTL Configuration
-- Set default TTL for all methods (6 hours, 21600 seconds)
-- Added configurable constant `WP_APCU_DEFAULT_TTL`
+- Default TTL Configuration
+  - Set default TTL for all methods (6 hours, 21600 seconds)
+  - Added configurable constant `WP_APCU_DEFAULT_TTL`
 
-## Version Counter Reset
-- Reset version counter to 1 when exceeding 100
-- Implemented cleanup of outdated entries for specific groups/sites
+- Version Counter Reset
+  - Reset version counter to 1 when exceeding 100
+  - Implemented cleanup of outdated entries for specific groups/sites
 
-## Periodic Cache Cleanup
-- Added `cleanup_old_entries()` method
-- Configured WordPress cron for hourly execution
-- Automatic cleanup when memory usage exceeds 80%
+- Periodic Cache Cleanup
+  - Added `cleanup_old_entries()` method
+  - Configured WordPress cron for hourly execution
+  - Automatic cleanup when memory usage exceeds 80%
 
-## Smart Invalidation
-- Added hooks for all WordPress data types
+- Smart Invalidation
+  - Added hooks for all WordPress data types
 
 ### 1.3
 - Enhanced cache invalidation logic and resource management:
