@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: WordPress APCu Object Cache Backend
-Plugin URI: https://github.com/sup3dev/object-cache-apcu
+Plugin URI: https://github.com/sup3dev/apcu-wordpress
 Description: APCu backend for WordPress' Object Cache. Based on the plugin https://github.com/l3rady/object-cache-apcu (version v1.2)
 Version: 1.3
 Author: Alexander Mikheev (sup3dev)
@@ -469,12 +469,20 @@ class WP_Object_Cache
         if (!defined('WP_APCU_LOCAL_CACHE')) {
             define('WP_APCU_LOCAL_CACHE', true);
         }
+        
+        /**
+         * define('WP_APCU_DEFAULT_TTL', 21600) to set custom default TTL
+         * for cache items that have TTL=0. Default is 6 hours.
+         */
+        if (!defined('WP_APCU_DEFAULT_TTL')) {
+            define('WP_APCU_DEFAULT_TTL', 21600); // 6 часов
+        }
 
         $this->_absPath = md5(ABSPATH);
         $this->_apcuAvailable = (extension_loaded('apcu') && ini_get('apc.enabled'));
         $this->_multiSite = is_multisite();
         $this->_blogPrefix = $this->_multiSite ? $blog_id : 1;
-        $this->init_cache_hooks(); // Добавляем инициализацию хуков для инвалидации кеша
+        $this->init_cache_hooks(); // Добавляем инициализацию хуков для инвалидации кэша
     }
     
     public function stats()
@@ -1191,6 +1199,11 @@ class WP_Object_Cache
      */
     public function set($key, $var, $group = 'default', $ttl = 0)
     {
+        // Если TTL не задан, используем значение по умолчанию из констант
+        if ($ttl <= 0 && defined('WP_APCU_DEFAULT_TTL')) {
+            $ttl = WP_APCU_DEFAULT_TTL;
+        }
+        
         $key = $this->_key($key, $group);
 
         if (!$this->_apcuAvailable || $this->_is_non_persistent_group($group)) {
@@ -1231,6 +1244,11 @@ class WP_Object_Cache
      */
     private function _set($key, $var, $ttl)
     {
+        // Если TTL не задан или равен 0, устанавливаем значение по умолчанию (6 часов)
+        if ($ttl <= 0) {
+            $ttl = 21600; // 6 часов в секундах
+        }
+        
         if (is_object($var)) {
             $var = clone $var;
         }
@@ -1287,6 +1305,27 @@ class WP_Object_Cache
      */
     private function _set_group_cache_version($group, $version)
     {
+        // Если версия превышает разумное значение, сбрасываем до 1
+        if ($version > 100) {
+            $version = 1;
+            
+            // Опционально: очистка старых записей группы
+            if ($this->_apcuAvailable) {
+                $cache_info = apcu_cache_info();
+                if (isset($cache_info['cache_list']) && is_array($cache_info['cache_list'])) {
+                    $group_prefix = WP_APCU_KEY_SALT . ':' . $this->_absPath . ':' . 
+                                (isset($this->_globalGroups[$group]) ? '0' : $this->_blogPrefix) . 
+                                ':' . $group . ':';
+                    
+                    foreach ($cache_info['cache_list'] as $entry) {
+                        if (isset($entry['info']) && strpos($entry['info'], $group_prefix) === 0) {
+                            apcu_delete($entry['info']);
+                        }
+                    }
+                }
+            }
+        }
+        
         $this->_set_cache_version($this->_get_cache_version_key('GroupVersion', $group), $version);
     }
 
@@ -1298,6 +1337,25 @@ class WP_Object_Cache
      */
     private function _set_site_cache_version($site, $version)
     {
+        // Если версия превышает разумное значение, сбрасываем до 1
+        if ($version > 100) {
+            $version = 1;
+            
+            // Опционально: очистка старых записей сайта
+            if ($this->_apcuAvailable) {
+                $cache_info = apcu_cache_info();
+                if (isset($cache_info['cache_list']) && is_array($cache_info['cache_list'])) {
+                    $site_prefix = WP_APCU_KEY_SALT . ':' . $this->_absPath . ':' . $site . ':';
+                    
+                    foreach ($cache_info['cache_list'] as $entry) {
+                        if (isset($entry['info']) && strpos($entry['info'], $site_prefix) === 0) {
+                            apcu_delete($entry['info']);
+                        }
+                    }
+                }
+            }
+        }
+        
         $this->_set_cache_version($this->_get_cache_version_key('SiteVersion', $site), $version);
     }
 
@@ -1439,6 +1497,12 @@ class WP_Object_Cache
         add_action('profile_update', [$this, 'flush_user_cache'], 10);
         add_action('user_register', [$this, 'flush_user_cache'], 10);
         add_action('deleted_user', [$this, 'flush_user_cache'], 10);
+
+        // Добавляем периодическую очистку старых записей
+        if (!wp_next_scheduled('apcu_object_cache_cleanup')) {
+            wp_schedule_event(time(), 'hourly', 'apcu_object_cache_cleanup');
+        }
+        add_action('apcu_object_cache_cleanup', [$this, 'cleanup_old_entries']);
     }
 
     /**
@@ -1524,5 +1588,40 @@ class WP_Object_Cache
     public function flush_user_cache($user_id) {
         $this->delete($user_id, 'users');
         $this->delete($user_id, 'user_meta');
+    }
+
+    /**
+     * Очистка старых записей APCu, которые могли остаться после множественных версий
+     */
+    public function cleanup_old_entries() {
+        if (!$this->_apcuAvailable) {
+            return;
+        }
+        
+        $cache_info = apcu_cache_info();
+        $cleaned = 0;
+        $current_time = time();
+        
+        if (isset($cache_info['cache_list']) && is_array($cache_info['cache_list'])) {
+            foreach ($cache_info['cache_list'] as $entry) {
+                // Удаляем записи старше 24 часов или с превышением TTL
+                if (($entry['ttl'] > 0 && $current_time > $entry['creation_time'] + $entry['ttl']) ||
+                    ($current_time > $entry['creation_time'] + 86400)) {
+                    if (apcu_delete($entry['info'])) {
+                        $cleaned++;
+                    }
+                }
+            }
+        }
+        
+        // Проверяем использование памяти, если больше 80%, выполняем дополнительную очистку
+        $mem = apcu_sma_info();
+        $memory_usage = ($mem['seg_size'] - $mem['avail_mem']) / $mem['seg_size'] * 100;
+        
+        if ($memory_usage > 80) {
+            $this->flush_runtime();
+        }
+        
+        return $cleaned;
     }
 }
