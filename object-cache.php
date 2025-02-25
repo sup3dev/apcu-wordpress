@@ -1466,40 +1466,47 @@ class WP_Object_Cache
         if (!function_exists('add_action')) {
             return;
         }
-
+    
         // Hooks for options
         add_action('updated_option', [$this, 'flush_options_cache'], 10, 1);
         add_action('deleted_option', [$this, 'flush_options_cache'], 10, 1);
         add_action('added_option', [$this, 'flush_options_cache'], 10, 1);
-
+    
         // Hooks for posts
         add_action('save_post', [$this, 'flush_post_cache'], 10, 3);
         add_action('deleted_post', [$this, 'flush_post_cache'], 10);
         add_action('clean_post_cache', [$this, 'flush_post_cache'], 10);
         add_action('transition_post_status', [$this, 'flush_post_cache'], 10);
-
+    
         // Hooks for terms and taxonomies
         add_action('edited_term', [$this, 'flush_term_cache'], 10, 3);
         add_action('deleted_term', [$this, 'flush_term_cache'], 10, 3);
         add_action('clean_term_cache', [$this, 'flush_term_cache'], 10);
         add_action('edited_terms', [$this, 'flush_term_cache'], 10);
-
+    
         // Hooks for metadata
         add_action('updated_postmeta', [$this, 'flush_meta_cache'], 10, 4);
         add_action('deleted_postmeta', [$this, 'flush_meta_cache'], 10, 4);
         add_action('added_postmeta', [$this, 'flush_meta_cache'], 10, 4);
-
+    
         // Hooks for comments
         add_action('transition_comment_status', [$this, 'flush_comment_cache'], 10);
         add_action('edit_comment', [$this, 'flush_comment_cache'], 10);
-
+    
         // Hooks for users
         add_action('profile_update', [$this, 'flush_user_cache'], 10);
         add_action('user_register', [$this, 'flush_user_cache'], 10);
         add_action('deleted_user', [$this, 'flush_user_cache'], 10);
+    
+        // Отложенная регистрация cron-задачи до момента, когда WordPress полностью загружен
+        add_action('init', [$this, 'setup_scheduled_cleanup']);
+    }
 
-        // Добавляем периодическую очистку старых записей
-        if (!wp_next_scheduled('apcu_object_cache_cleanup')) {
+    /**
+     * Установка периодической очистки кэша (вызывается после полной загрузки WordPress)
+     */
+    public function setup_scheduled_cleanup() {
+        if (function_exists('wp_next_scheduled') && !wp_next_scheduled('apcu_object_cache_cleanup')) {
             wp_schedule_event(time(), 'hourly', 'apcu_object_cache_cleanup');
         }
         add_action('apcu_object_cache_cleanup', [$this, 'cleanup_old_entries']);
