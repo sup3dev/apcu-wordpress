@@ -36,7 +36,7 @@ Contributing
 Feel free to open an issue or submit a pull request if you have suggestions or find bugs. Contributions are always welcome!
 
 ## Changelog
-### 1.2
+### 1.3
 - Enhanced cache invalidation logic and resource management:
   - Added intelligent cache invalidation: automatic clearing of cache on content changes, spot invalidation instead of full cleanup.
   - Introduced separate handlers for different data types (posts, terms, metadata, comments, etc.) to improve performance.
