@@ -32,6 +32,24 @@ Contributing
 Feel free to open an issue or submit a pull request if you have suggestions or find bugs. Contributions are always welcome!
 
 ## Changelog
+
+### 1.5
+- Bug fixes
+  - Fixed a critical error in the flush_meta_cache() method when the function was called with an array of parameters instead of individual arguments
+  - Added correct object handling in flush_post_cache(), flush_term_cache(), flush_comment_cache() and flush_user_cache() methods
+  - Fixed _key() method - added check for empty or null key values
+  - Improved error handling in cleanup_old_entries() method using error suppression for APCu functions
+
+
+- Improvements
+  - Optimized setup_scheduled_cleanup() method to prevent duplicate hooks
+  - Added type checks to cache handling methods to prevent errors
+  - Enhanced existence checks for WordPress functions before calling them
+  - Improved metadata handling for different content types
+
+- Security
+  - Added additional checks for type and existence of parameters before processing
+
 ### 1.4.1
 
 - TTL Handling Improvements
