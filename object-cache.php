@@ -3,7 +3,7 @@
 Plugin Name: WordPress APCu Object Cache Backend
 Plugin URI: https://github.com/sup3dev/apcu-wordpress
 Description: APCu backend for WordPress' Object Cache. Based on the plugin https://github.com/l3rady/object-cache-apcu (version v1.2)
-Version: 1.4.1
+Version: 1.5
 Author: Alexander Mikheev (sup3dev)
 */
 
@@ -1115,10 +1115,13 @@ class WP_Object_Cache
      * @param int|string $key The key
      * @param string $group The group
      *
-     * @return string Returns the calculated cache key
+     * @return string|bool Returns the calculated cache key or false on invalid input
      */
-    private function _key($key, $group)
-    {
+    private function _key($key, $group) {
+        if ($key === null || $key === '') {
+            return false;
+        }
+        
         if (empty($group)) {
             $group = 'default';
         }
@@ -1505,16 +1508,24 @@ class WP_Object_Cache
     
         // Отложенная регистрация cron-задачи до момента, когда WordPress полностью загружен
         add_action('init', [$this, 'setup_scheduled_cleanup']);
-    }
+    }    
 
     /**
      * Установка периодической очистки кэша (вызывается после полной загрузки WordPress)
      */
     public function setup_scheduled_cleanup() {
-        if (function_exists('wp_next_scheduled') && !wp_next_scheduled('apcu_object_cache_cleanup')) {
+        if (!function_exists('wp_next_scheduled') || !function_exists('wp_schedule_event')) {
+            return;
+        }
+        
+        if (!wp_next_scheduled('apcu_object_cache_cleanup')) {
             wp_schedule_event(time(), 'hourly', 'apcu_object_cache_cleanup');
         }
-        add_action('apcu_object_cache_cleanup', [$this, 'cleanup_old_entries']);
+        
+        // Добавляем хук только если он еще не добавлен
+        if (!has_action('apcu_object_cache_cleanup', [$this, 'cleanup_old_entries'])) {
+            add_action('apcu_object_cache_cleanup', [$this, 'cleanup_old_entries']);
+        }
     }
 
     /**
@@ -1523,6 +1534,10 @@ class WP_Object_Cache
      * @param string $option Option name
      */
     public function flush_options_cache($option) {
+        if (empty($option) || !is_string($option)) {
+            return;
+        }
+        
         $this->delete($option, 'options');
         
         if ($this->_multiSite) {
@@ -1534,15 +1549,27 @@ class WP_Object_Cache
     /**
      * Clearing post cache
      * 
-     * @param int $post_id post ID
+     * @param int|WP_Post $post_id post ID or post object
      */
     public function flush_post_cache($post_id) {
-        if (!$post_id) {
+        // Обработка случая, когда передан объект поста
+        if (is_object($post_id) && isset($post_id->ID)) {
+            $post_id = $post_id->ID;
+        }
+        
+        if (empty($post_id) || !is_numeric($post_id)) {
             return;
         }
 
-        $post_type = get_post_type($post_id);
-        if (!$post_type) {
+        $post_type = null;
+        if (function_exists('get_post_type')) {
+            $post_type = get_post_type($post_id);
+        }
+        
+        if (empty($post_type)) {
+            // Если тип поста не определен, очищаем только основные кэши
+            $this->delete($post_id, 'posts');
+            $this->delete($post_id, 'post_meta');
             return;
         }
 
@@ -1551,7 +1578,7 @@ class WP_Object_Cache
         $this->delete($post_id, "post_$post_type");
 
         // Invalidate common group keys if necessary
-        if ($post_type === 'page') {
+        if ($post_type === 'page' && function_exists('clean_page_cache')) {
             $this->flush_groups('pages');
         }
         if ($post_type === 'nav_menu_item') {
@@ -1561,24 +1588,70 @@ class WP_Object_Cache
 
     /**
      * Clearing the term cache
+     * 
+     * @param int|array|object $term_id Term ID, array of Term IDs, or Term object
+     * @param string $taxonomy Taxonomy name
+     * @param mixed $deleted_term Deleted term object
      */
     public function flush_term_cache($term_id, $taxonomy = '', $deleted_term = null) {
+        // Обработка случая, когда передан массив ID терминов
+        if (is_array($term_id)) {
+            foreach ($term_id as $id) {
+                $this->flush_term_cache($id, $taxonomy, $deleted_term);
+            }
+            return;
+        }
+        
+        // Если передан объект термина
+        if (is_object($term_id) && isset($term_id->term_id)) {
+            if (empty($taxonomy) && isset($term_id->taxonomy)) {
+                $taxonomy = $term_id->taxonomy;
+            }
+            $term_id = $term_id->term_id;
+        }
+        
+        if (empty($term_id) || !is_numeric($term_id)) {
+            return;
+        }
+        
         $this->delete($term_id, 'terms');
         $this->delete($term_id, 'term_meta');
         
-        if ($taxonomy) {
+        if (!empty($taxonomy)) {
             $this->delete($term_id, "term_$taxonomy");
         }
     }
 
     /**
      * Clearing metadata cache
+     * 
+     * @param mixed $meta_id Meta ID or array of meta data
+     * @param int $object_id Object ID
+     * @param string $meta_key Meta key
+     * @param mixed $meta_value Meta value
      */
-    public function flush_meta_cache($meta_id, $object_id, $meta_key, $meta_value = null) {
-        if (strpos($meta_key, '_transient_') === 0) {
+    public function flush_meta_cache($meta_id, $object_id = null, $meta_key = null, $meta_value = null) {
+        // Проверяем, передан ли массив в первом аргументе
+        if (is_array($meta_id) && $object_id === null) {
+            // Если передан массив, извлекаем необходимые значения из него
+            if (isset($meta_id['meta_id'])) {
+                $actual_meta_id = $meta_id['meta_id'];
+            }
+            if (isset($meta_id['object_id'])) {
+                $object_id = $meta_id['object_id'];
+            }
+            if (isset($meta_id['meta_key'])) {
+                $meta_key = $meta_id['meta_key'];
+            }
+            if (isset($meta_id['meta_value'])) {
+                $meta_value = $meta_id['meta_value'];
+            }
+        }
+
+        if (is_string($meta_key) && strpos($meta_key, '_transient_') === 0) {
             $this->delete(substr($meta_key, 11), 'transient');
         }
-        else {
+        else if ($object_id) {
             $this->delete($object_id, 'post_meta');
             $this->delete($object_id, 'comment_meta');
             $this->delete($object_id, 'term_meta');
@@ -1588,16 +1661,42 @@ class WP_Object_Cache
 
     /**
      * Clearing comment cache
+     * 
+     * @param int|object $comment_id Comment ID or Comment object
      */
     public function flush_comment_cache($comment_id) {
+        // Проверка на объект комментария
+        if (is_object($comment_id)) {
+            if (isset($comment_id->comment_ID)) {
+                $comment_id = $comment_id->comment_ID;
+            } elseif (isset($comment_id->comment_id)) {
+                $comment_id = $comment_id->comment_id;
+            }
+        }
+        
+        if (empty($comment_id) || !is_numeric($comment_id)) {
+            return;
+        }
+        
         $this->delete($comment_id, 'comments');
         $this->delete($comment_id, 'comment_meta');
     }
 
     /**
      * Clearing user cache
+     * 
+     * @param int|object $user_id User ID or User object
      */
     public function flush_user_cache($user_id) {
+        // Проверка на объект пользователя
+        if (is_object($user_id) && isset($user_id->ID)) {
+            $user_id = $user_id->ID;
+        }
+        
+        if (empty($user_id) || !is_numeric($user_id)) {
+            return;
+        }
+        
         $this->delete($user_id, 'users');
         $this->delete($user_id, 'user_meta');
     }
@@ -1607,15 +1706,20 @@ class WP_Object_Cache
      */
     public function cleanup_old_entries() {
         if (!$this->_apcuAvailable) {
-            return;
+            return 0;
         }
         
-        $cache_info = apcu_cache_info();
+        $cache_info = @apcu_cache_info(); // Используем @ для подавления возможных ошибок
         $cleaned = 0;
         $current_time = time();
         
         if (isset($cache_info['cache_list']) && is_array($cache_info['cache_list'])) {
             foreach ($cache_info['cache_list'] as $entry) {
+                // Проверяем наличие ключей перед использованием
+                if (!isset($entry['info']) || !isset($entry['ttl']) || !isset($entry['creation_time'])) {
+                    continue;
+                }
+                
                 // Удаляем записи старше 24 часов или с превышением TTL
                 if (($entry['ttl'] > 0 && $current_time > $entry['creation_time'] + $entry['ttl']) ||
                     ($current_time > $entry['creation_time'] + 86400)) {
@@ -1627,11 +1731,13 @@ class WP_Object_Cache
         }
         
         // Проверяем использование памяти, если больше 80%, выполняем дополнительную очистку
-        $mem = apcu_sma_info();
-        $memory_usage = ($mem['seg_size'] - $mem['avail_mem']) / $mem['seg_size'] * 100;
-        
-        if ($memory_usage > 80) {
-            $this->flush_runtime();
+        $mem = @apcu_sma_info(); // Используем @ для подавления возможных ошибок
+        if (is_array($mem) && isset($mem['seg_size']) && isset($mem['avail_mem'])) {
+            $memory_usage = ($mem['seg_size'] - $mem['avail_mem']) / $mem['seg_size'] * 100;
+            
+            if ($memory_usage > 80) {
+                $this->flush_runtime();
+            }
         }
         
         return $cleaned;
